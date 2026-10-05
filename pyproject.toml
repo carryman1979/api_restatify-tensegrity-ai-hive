@@ -1,0 +1,9 @@
+[project]
+name = "tensegrity-hive"
+version = "0.1.0"
+description = "Minimal Hive MVP for Tensegrity AI"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "--cov=hive --cov-report=term-missing --cov-fail-under=85"
