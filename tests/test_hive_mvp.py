@@ -1,3 +1,5 @@
+import json
+
 from hive.aggregation_service import DeltaCandidate, weighted_average
 from hive.audit_service import AuditService
 from hive.release_service import build_release_bundle, validate_release_bundle
@@ -293,4 +295,61 @@ def test_hive_feedback_endpoint_rejects_missing_evidence(monkeypatch):
 
     assert responses[0][0] == 400
     assert responses[0][1]["accepted"] is False
+
+
+def test_hive_release_endpoint_accepts_valid_bundle(monkeypatch):
+    from hive.__main__ import HiveRequestHandler
+
+    manifest = "version=1.1.0\nartifacts=adapter.gguf"
+    bundle = build_release_bundle("1.1.0", manifest, ["adapter.gguf"])
+    body = json.dumps(
+        {
+            "version": bundle.version,
+            "manifest": manifest,
+            "manifest_hash": bundle.manifest_hash,
+            "signature": bundle.signature,
+            "artifacts": list(bundle.artifacts),
+        }
+    ).encode("utf-8")
+
+    handler = HiveRequestHandler.__new__(HiveRequestHandler)
+    handler.path = "/release"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = type("R", (), {"read": lambda self, n: body})()
+    responses = []
+    monkeypatch.setattr(handler, "_send_json", lambda status, payload: responses.append((status, payload)))
+
+    handler.do_POST()
+
+    assert responses[0][0] == 200
+    assert responses[0][1]["accepted"] is True
+    assert responses[0][1]["version"] == "1.1.0"
+
+
+def test_hive_release_endpoint_rejects_hash_mismatch(monkeypatch):
+    from hive.__main__ import HiveRequestHandler
+
+    bundle = build_release_bundle("1.1.0", "manifest", ["adapter.gguf"])
+    body = json.dumps(
+        {
+            "version": bundle.version,
+            "manifest": "manifest",
+            "manifest_hash": "deadbeef",
+            "signature": bundle.signature,
+            "artifacts": list(bundle.artifacts),
+        }
+    ).encode("utf-8")
+
+    handler = HiveRequestHandler.__new__(HiveRequestHandler)
+    handler.path = "/release"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = type("R", (), {"read": lambda self, n: body})()
+    responses = []
+    monkeypatch.setattr(handler, "_send_json", lambda status, payload: responses.append((status, payload)))
+
+    handler.do_POST()
+
+    assert responses[0][0] == 400
+    assert responses[0][1]["accepted"] is False
+    assert "hash" in responses[0][1]["reason"]
 

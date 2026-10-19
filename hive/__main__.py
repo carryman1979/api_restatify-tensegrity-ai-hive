@@ -8,6 +8,7 @@ from typing import Any
 
 from hive.aggregation_service import DeltaCandidate, weighted_average
 from hive.feedback_service import EvidenceRef, FeedbackEvent, validate_feedback
+from hive.release_service import ReleaseBundle, validate_release_bundle
 from hive.slot_registry import SlotRegistry
 from hive.trust_service import ConfidentialityLevel, SubmissionContext, validate_submission
 
@@ -103,6 +104,24 @@ class HiveRequestHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             self._send_json(200, {"accepted": True, "event_id": event.event_id})
+            return
+
+        if self.path == "/release":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            data = json.loads(raw.decode("utf-8")) if raw else {}
+            bundle = ReleaseBundle(
+                version=data.get("version", ""),
+                manifest_hash=data.get("manifest_hash", ""),
+                signature=data.get("signature", ""),
+                artifacts=tuple(data.get("artifacts", [])),
+            )
+            ok, reason = validate_release_bundle(bundle, data.get("manifest", ""))
+            if not ok:
+                self._send_json(400, {"accepted": False, "reason": reason})
+                return
+
+            self._send_json(200, {"accepted": True, "version": bundle.version})
             return
 
         self._send_json(404, {"error": "not found"})
