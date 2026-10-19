@@ -13,3 +13,5 @@ build/
 *.gguf
 .DS_Store
 Thumbs.db
+
+.coverage
