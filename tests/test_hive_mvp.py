@@ -194,3 +194,103 @@ def test_hive_aggregate_accepts_valid_candidates(monkeypatch):
     assert responses[0][0] == 200
     assert "weighted_average" in responses[0][1]
 
+
+def test_feedback_with_evidence_is_accepted():
+    from hive.feedback_service import EvidenceRef, FeedbackEvent, validate_feedback
+
+    event = FeedbackEvent(
+        event_id="evt-1",
+        app_instance_id="app-1",
+        model_id="model-1",
+        rating=1,
+        comment="Hilfreich",
+        level=ConfidentialityLevel.OFFEN,
+        evidence=(EvidenceRef("src-1", "Quelle A"),),
+    )
+
+    ok, reason = validate_feedback(event)
+    assert ok is True
+    assert reason == "accepted"
+
+
+def test_feedback_without_evidence_is_rejected_when_rated():
+    from hive.feedback_service import FeedbackEvent, validate_feedback
+
+    event = FeedbackEvent(
+        event_id="evt-2",
+        app_instance_id="app-1",
+        model_id="model-1",
+        rating=-1,
+        comment="Falsch",
+        level=ConfidentialityLevel.OFFEN,
+    )
+
+    ok, reason = validate_feedback(event)
+    assert ok is False
+    assert "evidence" in reason
+
+
+def test_feedback_with_local_only_level_is_rejected():
+    from hive.feedback_service import FeedbackEvent, validate_feedback
+
+    event = FeedbackEvent(
+        event_id="evt-3",
+        app_instance_id="app-1",
+        model_id="model-1",
+        rating=0,
+        comment="Notiz",
+        level=ConfidentialityLevel.NUR_LOKAL,
+    )
+
+    ok, reason = validate_feedback(event)
+    assert ok is False
+    assert "NUR_LOKAL" in reason
+
+
+def test_feedback_with_invalid_rating_is_rejected():
+    from hive.feedback_service import FeedbackEvent, validate_feedback
+
+    event = FeedbackEvent(
+        event_id="evt-4",
+        app_instance_id="app-1",
+        model_id="model-1",
+        rating=5,
+        comment="Ungültig",
+        level=ConfidentialityLevel.OFFEN,
+    )
+
+    ok, _ = validate_feedback(event)
+    assert ok is False
+
+
+def test_hive_feedback_endpoint_accepts_valid_payload(monkeypatch):
+    from hive.__main__ import HiveRequestHandler
+
+    handler = HiveRequestHandler.__new__(HiveRequestHandler)
+    handler.path = "/feedback"
+    handler.headers = {"Content-Length": "118"}
+    handler.rfile = type("R", (), {"read": lambda self, n: b'{"event_id":"e1","app_instance_id":"a1","model_id":"m1","rating":1,"comment":"ok","level":"OFFEN","evidence":[{"source_id":"s1","citation":"Q1"}]}'})()
+    responses = []
+    monkeypatch.setattr(handler, "_send_json", lambda status, payload: responses.append((status, payload)))
+
+    handler.do_POST()
+
+    assert responses[0][0] == 200
+    assert responses[0][1]["accepted"] is True
+
+
+def test_hive_feedback_endpoint_rejects_missing_evidence(monkeypatch):
+    from hive.__main__ import HiveRequestHandler
+
+    handler = HiveRequestHandler.__new__(HiveRequestHandler)
+    handler.path = "/feedback"
+    handler.headers = {"Content-Length": "118"}
+    handler.rfile = type("R", (), {"read": lambda self, n: b'{"event_id":"e2","app_instance_id":"a1","model_id":"m1","rating":1,"comment":"ok","level":"OFFEN","evidence":[]}'})()
+    responses = []
+    monkeypatch.setattr(handler, "_send_json", lambda status, payload: responses.append((status, payload)))
+
+    handler.do_POST()
+
+    assert responses[0][0] == 400
+    assert responses[0][1]["accepted"] is False
+

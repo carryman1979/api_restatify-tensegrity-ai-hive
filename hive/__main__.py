@@ -7,6 +7,7 @@ import socketserver
 from typing import Any
 
 from hive.aggregation_service import DeltaCandidate, weighted_average
+from hive.feedback_service import EvidenceRef, FeedbackEvent, validate_feedback
 from hive.slot_registry import SlotRegistry
 from hive.trust_service import ConfidentialityLevel, SubmissionContext, validate_submission
 
@@ -74,6 +75,34 @@ class HiveRequestHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             self._send_json(200, {"accepted": True, "weighted_average": value})
+            return
+
+        if self.path == "/feedback":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            data = json.loads(raw.decode("utf-8")) if raw else {}
+            evidence = tuple(
+                EvidenceRef(
+                    source_id=entry.get("source_id", ""),
+                    citation=entry.get("citation", ""),
+                )
+                for entry in data.get("evidence", [])
+            )
+            event = FeedbackEvent(
+                event_id=data.get("event_id", ""),
+                app_instance_id=data.get("app_instance_id", ""),
+                model_id=data.get("model_id", ""),
+                rating=int(data.get("rating", 0)),
+                comment=data.get("comment", ""),
+                level=ConfidentialityLevel[data.get("level", "OFFEN")],
+                evidence=evidence,
+            )
+            ok, reason = validate_feedback(event)
+            if not ok:
+                self._send_json(400, {"accepted": False, "reason": reason})
+                return
+
+            self._send_json(200, {"accepted": True, "event_id": event.event_id})
             return
 
         self._send_json(404, {"error": "not found"})
