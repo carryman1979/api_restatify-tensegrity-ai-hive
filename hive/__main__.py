@@ -130,10 +130,13 @@ class HiveRequestHandler(http.server.BaseHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=50051)
+    parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
 
-    with socketserver.TCPServer(("127.0.0.1", args.port), HiveRequestHandler) as httpd:
-        print(f"Hive listening on 127.0.0.1:{args.port}")
+    with socketserver.TCPServer((args.host, args.port), HiveRequestHandler) as httpd:
+        # flush=True: ohne TTY puffert Python stdout blockweise; Container-Wait-Strategien
+        # ("UntilMessageIsLogged") haengen sonst ewig.
+        print(f"Hive listening on {args.host}:{args.port}", flush=True)
         httpd.serve_forever()
 
 
